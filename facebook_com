@@ -17,6 +17,7 @@ import langid
 from datetime import datetime
 from bitrix import *
 
+# Это надохдиться в config.py
 USERNAME = ""
 PASSWORD = ""
 PROFILE_URL = ""
