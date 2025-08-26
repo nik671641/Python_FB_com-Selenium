@@ -1,0 +1,407 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.action_chains import ActionChains
+import time
+from openAI import get_openai_response, get_openai_response_com
+from google_db import add_artpeople
+import pyperclip
+import re
+import threading
+import langid
+from datetime import datetime
+from bitrix import *
+
+# Это надохдиться в config.py
+USERNAME = ""
+PASSWORD = ""
+PROFILE_URL = "https://www.facebook.com/groups/111111111/members"
+
+chrome_options = Options()
+chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+USER_DATA_DIR = f"C:\\Users\\PC\\Desktop\\HomeWork\\testProject\\arteopleZoom\\profile_inst"
+chrome_options.add_argument(f"user-data-dir={USER_DATA_DIR}")
+chrome_options.add_argument('--start-maximized')
+chrome_options.add_argument(
+    'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/120.0.0.0 Safari/537.36'
+)
+chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+chrome_options.add_experimental_option('useAutomationExtension', False)
+
+service = Service(ChromeDriverManager().install())
+driver = webdriver.Chrome(service=service, options=chrome_options)
+
+
+def expand_all_comments():
+    """ Нажимает на все кнопки 'Показать ответы' или 'Load more' """
+    try:
+        while True:
+            # Ищем кнопки "Показать ответы" или "Load more"
+            buttons = driver.find_elements(By.CSS_SELECTOR,
+                                           ".xjbqb8w.xglei2g.x169pyod.x1xp15n3.x1knutoc.x168nmei.x13lgxp2.x5pf9jr.xo71vjh.x12scifz.x117nqv4.xr1yuqi.xq8finb.x4ii5y1.x16n37ib.xt0b8zv.x1n5bzlp._4jy0._4jy3._517h._51sy._42ft")
+            if not buttons:
+                break  # Если кнопок больше нет, выходим
+            for button in buttons:
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView();", button)
+                    time.sleep(1)
+                    button.click()
+                    time.sleep(2)  # Ждем, чтобы прогрузились комментарии
+                except Exception as e:
+                    print(f"Ошибка при нажатии на кнопку: {e}")
+            break
+    except Exception as e:
+        print(f"Ошибка при раскрытии комментариев: {e}")
+
+
+def scroll_down(driver, element, times=3):
+    """Прокручивает вниз несколько раз, чтобы загрузить больше сообщений."""
+    for _ in range(times):
+        try:
+            driver.execute_script("arguments[0].scrollIntoView();", element)
+            element.send_keys(Keys.PAGE_DOWN)
+            time.sleep(0.5)  # Небольшая пауза для подгрузки сообщений
+            print("⬇️ Прокрутка вниз выполнена")
+        except Exception as e:
+            print(f"Ошибка при прокрутке вниз: {e}")
+            break
+
+
+def com_inst():
+    try:
+
+        # # 1. Заходим на главную страницу Facebook и выполняем вход
+        # driver.get("https://www.facebook.com/")
+        # wait = WebDriverWait(driver, 10)
+        #
+        # # Ввод логина
+        # username_input = wait.until(EC.presence_of_element_located((By.NAME, "email")))
+        # username_input.send_keys(USERNAME)
+        #
+        # # Ввод пароля
+        # password_input = driver.find_element(By.NAME, "pass")
+        # password_input.send_keys(PASSWORD)
+        # password_input.send_keys(Keys.RETURN)
+        # print("✅ Вход в Facebook выполнен")
+        # time.sleep(30)  # Ждём, пока страница загрузится
+        # 2. Переходим в Messenger
+        # my_ls = "https://business.facebook.com/latest/inbox/instagram?asset_id=107993685099173&mailbox_id=107993685099173&selected_item_id=719121783986357&thread_type=INSTAGRAM_POST"
+        my_ls = 'https://business.facebook.com/latest/inbox/instagram?asset_id=107993685099173&mailbox_id=107993685099173&selected_item_id=719121783986357&thread_type=INSTAGRAM_POST'
+        driver.get(my_ls)
+        time.sleep(3)
+        while True:
+            message_blocks = driver.find_elements(By.CSS_SELECTOR, "._a6ag._a6ah.clearfix._ikh")
+            for message_try in message_blocks:
+                try:
+                    print("Новое сообщение найдено!")
+                    message_try.click()
+                    time.sleep(10)
+
+                    # Скроллим вниз страницы 5 раз
+                    try:
+                        # Находим блок с сообщениями
+                        chat_box = driver.find_element(By.CLASS_NAME, 'x1yrsyyn.x1pi30zi.x10b6aqq.x1egjynq')
+                        scroll_down(driver, chat_box, times=2)  # Прокрутка вверх
+                    except:
+                        chat_box = driver.find_element(By.CLASS_NAME, 'x78zum5.xdt5ytf.x1iyjqo2.x1n2onr6')
+                        scroll_down(driver, chat_box, times=2)  # Прокрутка вверх
+
+                    expand_all_comments()
+
+                    # Подгружаем последние 10 сообщений
+                    messages = driver.find_elements(By.CLASS_NAME, 'x78zum5.x2lwn1j.xeuugli.x1ybmbna')
+                    print(f"Количество comm: {len(messages)}")
+
+                    for message in messages:
+                        try:
+                            # Скроллим к сообщению
+                            driver.execute_script("arguments[0].scrollIntoView();", message)
+                            time.sleep(1)
+
+                            try:
+                                parent = message.find_element(By.XPATH,
+                                                              ".//ancestor::*[contains(@class, 'xglei2g') and contains(@class, 'x169pyod') and contains(@class, 'x1xp15n3') and contains(@class, 'x1knutoc') and contains(@class, 'x168nmei') and contains(@class, 'x13lgxp2') and contains(@class, 'x5pf9jr') and contains(@class, 'xo71vjh') and contains(@class, '_4-u2') and contains(@class, '_4-u8')]")
+                                if parent:
+                                    print(
+                                        f"⏩ Пропущен вложенный комментарий (внутри нежелательного блока): {message.text}")
+                                    continue
+                            except:
+                                pass
+
+                            # Поиск всех соседних блоков сразу после текущего
+                            siblings = message.find_elements(By.XPATH, "./following-sibling::*")
+
+                            # Флаг найденного вложенного комментария
+                            found = False
+
+                            for sibling in siblings:
+                                sibling_classes = sibling.get_attribute("class")
+                                print(f"[DEBUG] Классы следующего блока: {sibling_classes}")
+
+                                # Нужные классы для проверки вложенности
+                                needed_classes = [
+                                    'xglei2g', 'x169pyod', 'x1xp15n3', 'x1knutoc', 'x168nmei',
+                                    'x13lgxp2', 'x5pf9jr', 'xo71vjh', '_4-u2', '_4-u8'
+                                ]
+
+                                # Проверка: если блок сразу под комментарием и не имеет вложенной кнопки
+                                if any(cls in sibling_classes for cls in needed_classes):
+                                    print(f"✅ Найден вложенный комментарий под: {message.text}")
+                                    found = True
+                                    break
+
+                                # Если комментарий сразу под сообщением и нет вложенности
+                                if not any(cls in sibling_classes for cls in needed_classes):
+                                    found = False
+                                    break
+
+                            if found:
+                                continue
+
+                            element = message.find_elements(By.CLASS_NAME, 'x17ddzgb.x1o6q14k')[0]
+
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                            time.sleep(1)  # Даем время на скролл
+
+                            # Пробуем кликнуть через JS, если обычный клик не работает
+                            try:
+                                element.click()
+                                print("✅ Успешный клик по элементу")
+                            except:
+                                print("❌ Прямой клик не удался, пробуем через JS")
+                                driver.execute_script("arguments[0].click();", element)
+                                print("✅ Клик выполнен через JS")
+                            text_msg = message.find_element(By.CLASS_NAME, 'x1nxh6w3.x78zum5.x6s0dn4.x13faqbe')
+
+                            message_box = driver.find_element(By.CSS_SELECTOR,
+                                                              '.x1xmf6yo.x15ku74s.x21xpn4.x12peec7.x37zpob.xtt52l0.x3d5gib.xxymvpz.xh8yej3.x1ejq31n.x18oe1m7.x1sy0etr.xstzfhl.x1f6kntn.x7whbhp.x1j61x8r.x135b78x.x11lfxj5._58al.uiTextareaAutogrow')
+                            text_content = text_msg.text.strip()
+
+                            if text_content == '':
+                                try:
+                                    # Пытаемся найти эмодзи внутри элемента
+                                    emoji_element = text_msg.find_element(By.CSS_SELECTOR,
+                                                                          '.xz74otr.x168nmei.x13lgxp2.x5pf9jr.xo71vjh')
+                                    emoji_text = emoji_element.get_attribute('alt')  # Получаем атрибут alt
+                                    text_content = emoji_text  # Сохраняем эмодзи как текст
+                                    print(f"Эмодзи обнаружено: {text_content}")
+                                except Exception as e:
+                                    print(f"Ошибка при получении эмодзи: {e}")
+                            else:
+                                print(f"Текст обнаружен: {text_content}")
+
+                            ai_response = get_openai_response_com(text_content, "design_partner")
+                            print("\n\nai_response", ai_response, "\n")
+                            if 'bad comment' in ai_response.lower():
+                                message.find_element(By.CLASS_NAME, '_p._xw1._xw9._5upp._42ft').click()
+                                time.sleep(1)
+                                driver.find_element(By.CLASS_NAME, '_54ng').click()
+                                continue
+
+                            pyperclip.copy(f"{ai_response}")
+
+                            message_box.send_keys(Keys.CONTROL, 'v')
+                            time.sleep(25)
+                            message_box.send_keys(Keys.ENTER)
+
+                        except Exception as e:
+                            print(e)
+                            print('Error')
+                            continue
+
+                except Exception as e:
+                    print(f"Ошибка при обработке нового сообщения: {e}")
+                    continue
+
+            time.sleep(5000)
+            driver.get(my_ls)
+            time.sleep(3)
+
+    except Exception as e:
+        print("Ошибка:", e)
+
+
+def com_fs():
+    try:
+        # 1. Заходим на главную страницу Facebook и выполняем вход
+        driver.get("https://www.facebook.com/")
+        wait = WebDriverWait(driver, 10)
+
+        # Ввод логина
+        username_input = wait.until(EC.presence_of_element_located((By.NAME, "email")))
+        username_input.send_keys(USERNAME)
+
+        # Ввод пароля
+        password_input = driver.find_element(By.NAME, "pass")
+        password_input.send_keys(PASSWORD)
+        password_input.send_keys(Keys.RETURN)
+        print("✅ Вход в Facebook выполнен")
+        time.sleep(30)  # Ждём, пока страница загрузится
+        # 2. Переходим в Messenger
+        my_ls = "https://business.facebook.com/latest/inbox/facebook?asset_id=314422315087381&mailbox_id=314422315087381&selected_item_id=514461505083460&thread_type=FB_AD_POST"
+        # my_ls = 'https://business.facebook.com/latest/inbox/instagram?asset_id=314422315087381&mailbox_id=314422315087381&selected_item_id=522768890919388&thread_type=INSTAGRAM_POST'
+        driver.get(my_ls)
+        time.sleep(3)
+        while True:
+            message_blocks = driver.find_elements(By.CSS_SELECTOR, "._a6ag._a6ah.clearfix._ikh")
+            for message_try in message_blocks:
+                try:
+                    print("Новое сообщение найдено!")
+                    message_try.click()
+                    time.sleep(5)
+
+                    # Скроллим вниз страницы 5 раз
+                    # try:
+                    # Находим блок с сообщениями
+                    chat_box = driver.find_element(By.CLASS_NAME, 'uiScrollableAreaWrap.scrollable')
+                    scroll_down(driver, chat_box, times=2)  # Прокрутка вверх
+                    # except:
+                    #     chat_box = driver.find_element(By.CLASS_NAME, 'x78zum5.xdt5ytf.x1iyjqo2.x1n2onr6')
+                    #     scroll_down(driver, chat_box, times=2)  # Прокрутка вверх
+
+                    expand_all_comments()
+
+                    messages = driver.find_elements(By.CLASS_NAME, 'x16hk5td.x12rz0ws')
+                    print(f"Количество comm: {len(messages)}")
+
+                    for message in messages:
+                        try:
+                            # Скроллим к сообщению
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", message)
+                            time.sleep(1)
+
+                            # Поиск всех элементов с указанным классом
+                            tech_elements = message.find_elements(By.CSS_SELECTOR,
+                                                                  '.html-div.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd')
+                            msg = message.find_element(By.CSS_SELECTOR,
+                                                       '.x1n2onr6.x1ye3gou.x1iorvi4.x78zum5.x1q0g3np.x1a2a7pz')
+                            print(f'ttt {len(tech_elements)}')
+                            for tech in tech_elements:
+                                try:
+                                    # Проверка на вложенные элементы
+                                    nested = message.find_elements(By.CSS_SELECTOR,
+                                                                   '.x1n2onr6.x1e558r4.x1iorvi4.x78zum5.x1q0g3np.x1a2a7pz')
+                                    if len(nested) > 0:
+                                        print(f"❌ Пропуск: внутри элемента найдено {len(nested)} вложенных элементов.")
+                                        break
+                                    else:
+                                        print("✅ Продолжение: вложенных элементов нет.")
+
+                                    # Проверка на наличие ответа от Art People
+                                    # try:
+                                    #     response_check = message.find_elements(By.XPATH,
+                                    #                                            ".//div[contains(text(), 'Art People')]")
+                                    #     if response_check:
+                                    #         print("⏩ Уже есть ответ от Art People, пропускаем.")
+                                    #         break
+                                    # except Exception as e:
+                                    #     print(f"Ошибка при проверке ответа от Art People: {e}")
+                                    #     break
+
+                                    # Обработка основного элемента
+                                    element = msg.find_elements(By.CLASS_NAME,
+                                                                'x1i10hfl.xjbqb8w.x1ejq31n.xd10rxx.x1sy0etr.x17r0tee.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x1ypdohk.xt0psk2.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x16tdsg8.x1hl2dhg.xggy1nq.x1a2a7pz.xkrqix3.x1sur9pj.xi81zsa.x1s688f')[
+                                        1]
+
+                                    # Скроллим к элементу
+                                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                                    time.sleep(1)
+
+                                    # Клик через JS, если обычный клик не работает
+                                    try:
+                                        element.click()
+                                        print("✅ Успешный клик по элементу")
+                                    except:
+                                        print("❌ Прямой клик не удался, пробуем через JS")
+                                        driver.execute_script("arguments[0].click();", element)
+                                        print("✅ Клик выполнен через JS")
+
+                                    # Получение текста сообщения
+                                    text_msg = msg.find_element(By.CLASS_NAME,
+                                                                'xdj266r.x11i5rnm.xat24cr.x1mh8g0r.x1vvkbs')
+                                    text_content = text_msg.text.strip()
+
+                                    # Поиск поля для ответа
+
+                                    message_box = message.find_element(By.CSS_SELECTOR,
+                                                                       ".x1ed109x.xdl72j9.x1iyjqo2.xs83m0k.x6prxxf.x6ikm8r.x10wlt62.x1y1aw1k.xn6708d.xwib8y2.x1ye3gou"
+                                                                       ).find_element(By.CSS_SELECTOR,
+                                                                                      '.xzsf02u.x1a2a7pz.x1n2onr6.x14wi4xw.notranslate')
+                                    # print(len(message_box))
+
+                                    print("✅ Поле для ответа найдено!")
+
+                                    # Скроллим к элементу на случай перекрытия
+                                    print("✅ Поле отображается и активно!")
+
+                                    # Скроллим к полю для гарантии видимости
+                                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});",
+                                                          message_box)
+                                    time.sleep(1)
+
+                                    # Пробуем сфокусироваться на поле через JS
+                                    driver.execute_script("arguments[0].focus();", message_box)
+                                    print("✅ Фокус на поле установлен!")
+
+                                    # Генерация ответа через AI
+                                    if text_content == '':
+                                        try:
+                                            # Пытаемся найти эмодзи внутри элемента
+                                            emoji_element = text_msg.find_element(By.CSS_SELECTOR,
+                                                                                  '.xz74otr.x168nmei.x13lgxp2.x5pf9jr.xo71vjh')
+                                            emoji_text = emoji_element.get_attribute('alt')  # Получаем атрибут alt
+                                            text_content = emoji_text  # Сохраняем эмодзи как текст
+                                            print(f"Эмодзи обнаружено: {text_content}")
+                                        except Exception as e:
+                                            print(f"Ошибка при получении эмодзи: {e}")
+                                    else:
+                                        print(f"Текст обнаружен: {text_content}")
+                                    print(text_content)
+                                    print('----------------------------------------------------------------')
+                                    ai_response = get_openai_response_com(text_content)
+                                    if 'bad comment' in ai_response.lower():
+                                        message.find_element(By.CLASS_NAME, 'x1rg5ohu.xxymvpz.x17z2i9w').click()
+                                        time.sleep(1)
+                                        driver.find_elements(By.CLASS_NAME,
+                                                             'x1i10hfl.xjbqb8w.x1ejq31n.xd10rxx.x1sy0etr.x17r0tee.x972fbf.xcfux6l.x1qhh985.xm0m39n.xe8uvvx.x1hl2dhg.xggy1nq.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m.x87ps6o.x1lku1pv.x1a2a7pz.xjyslct.x9f619.x1ypdohk.x78zum5.x1q0g3np.x2lah0s.x1i6fsjq.xfvfia3.xnqzcj9.x1gh759c.x10wwi4t.x1x7e7qh.x1344otq.x1de53dj.x1n2onr6.x16tdsg8.x1ja2u2z.x6s0dn4')[
+                                            0].click()
+                                        time.sleep(1)
+                                        driver.find_elements(By.CLASS_NAME,
+                                                             'x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft')[
+                                            0].click()
+                                        continue
+                                    # ai_response = 'test'
+                                    pyperclip.copy(f"{ai_response}")
+                                    message_box.click()
+                                    # Ввод текста в поле
+                                    message_box.send_keys(Keys.CONTROL, 'v')
+                                    time.sleep(2)
+                                    print("✅ Ответ отправлен")
+                                    break
+
+                                except Exception as e:
+                                    print(f"Ошибка при проверке вложенных элементов: {e}")
+                                    continue
+
+                        except Exception as e:
+                            print(e)
+                            print('Error')
+
+                except Exception as e:
+                    print(f"Ошибка при обработке нового сообщения: {e}")
+                    continue
+
+            time.sleep(5000)
+            driver.get(my_ls)
+            time.sleep(3)
+
+    except Exception as e:
+        print("Ошибка:", e)
+
+com_inst()
